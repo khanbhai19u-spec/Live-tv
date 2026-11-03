@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="bn"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Bangla Live TV</title>
+<style>
+:root{--bg:#0f1115;--card:#1a1d24;--tx:#eaeef5;--mu:#8b93a5;--ac:#e50914}
+*{box-sizing:border-box;margin:0;-webkit-tap-highlight-color:transparent}
+body{background:var(--bg);color:var(--tx);font-family:system-ui,sans-serif;padding-top:env(safe-area-inset-top)}
+#top{position:sticky;top:0;z-index:5;background:var(--bg);padding-top:env(safe-area-inset-top)}
+video{width:100%;aspect-ratio:16/9;background:#000;display:block}
+#bar{display:flex;align-items:center;gap:8px;padding:8px 12px}
+#ttl{flex:1;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#st{font-size:12px;color:var(--mu)}
+#fav{background:none;border:0;color:var(--ac);font-size:22px}
+#q{width:calc(100% - 24px);margin:0 12px 8px;padding:10px 14px;border-radius:20px;border:0;background:var(--card);color:var(--tx);font-size:15px}
+#chips{display:flex;gap:8px;overflow-x:auto;padding:0 12px 10px}
+#chips b{flex:none;padding:6px 14px;border-radius:16px;background:var(--card);font-size:13px;font-weight:500;color:var(--mu)}
+#chips b.on{background:var(--ac);color:#fff}
+#grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;padding:10px 12px calc(20px + env(safe-area-inset-bottom))}
+.ch{background:var(--card);border-radius:12px;padding:10px 6px;text-align:center;font-size:12px;border:2px solid transparent}
+.ch.on{border-color:var(--ac)}
+.ch img{width:56px;height:56px;object-fit:contain;display:block;margin:0 auto 6px}
+.ch span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mu{color:var(--mu);padding:20px;grid-column:1/-1;text-align:center}
+</style></head><body>
+<div id="top">
+<video id="v" controls playsinline></video>
+<div id="bar"><div id="ttl">চ্যানেল বেছে নাও</div><span id="st"></span><button id="fav">♡</button></div>
+<input id="q" placeholder="চ্যানেল খোঁজো…">
+<div id="chips"></div>
+</div>
+<div id="grid"><p class="mu">লোড হচ্ছে…</p></div>
+<script src="hls.min.js"></script>
+<script>
+// অনলাইন প্লেলিস্টের লিংক দিলে অ্যাপ আগে ওটা থেকে লোড করবে, না পেলে playlist.m3u ব্যবহার করবে
+const REMOTE='';
+// [দেখানো নাম, প্লেলিস্টের tvg-name] অথবা শুধু নাম
+const CATS={
+"বাংলাদেশ":["BTV Chattogram","Rajdhani TV",["RTV HD","RTV"],["Nexus TV HD","Nexus TV"],["Maasranga TV HD","Maasranga TV"],["NTV HD","NTV"],"Channel S","Enter TV","G Series Drama",["ATN Bangla HD","ATN Bangla"],["Bijoy TV HD","Bijoy TV"],["Banglavision HD","Bangla Vision"],"Boishakhi TV","Ananda TV",["My TV HD","My TV"],"Desh TV",["Global TV HD","Global TV"],"Madani Channel Bangla",["Somoy News HD","Somoy TV"],["News 24 HD","News 24"],["Ekattor TV HD","Ekattor TV"],["DBC News HD","DBC News"],"Matribhumi TV",["Movie Bangla HD","Movie Bangla"]],
+"ইন্ডিয়ান বাংলা":[["Zee Bangla Sonar HD","Zee Bangla Sonar"],"Sonar Bangla",["Jalsha Movies HD","Jalsha Movies"],"ZB Cinema","Sangeet Bangla",["Bengal Beats","Bengali Beats"],["Star Jalsha HD","Star Jalsha"],["Zee Bangla HD","Zee Bangla"],["Enter10 Bangla HD","Enter10 Bangla"],["Sony Aath","Sony Aath"],["Colors Bangla HD","Colors Bangla"],"DD Bangla"],
+"হিন্দি":[["Shemaroo TV","Shemaroo TV"],"Zee TV",["Sony Entertainment HD","Sony Entertainment TV"],["Colors HD","Colors"],["Colors Cineplex HD","Colors Cineplex Bollywood"],["Zee Cinema HD","Zee Cinema"],["Goldmines Hindi","Goldmines"],["South Station HD","South Station"],"Goldmines Movies",["Shemaroo Bollywood HD","Shemaroo Bollywood"]],
+"মিউজিক":[["Zoom Music","Zoom"],["8XM HD","8XM"],["9XM HD","9XM"],["Baallee Music","Balle Balle"]],
+"কিডস":[["WOW Kids","WOW Kidz Hindi"],"ZB Cartoon",["The Jungle Book","Jungle Book"],["Batul The Great","Bantul the Great"],"Cartoon Network",["Tom & Jerry","Tom and Jerry"],["Nick Jr.","Nick Jr (India)"]],
+"ইন্টারন্যাশনাল":[["CNN News","CNN"],["BBC Earth HD","BBC Earth"],["Discovery HD","Discovery"],["Wild Earth HD","WildEarth"],["Hollywood Action Movies","Action Hollywood Movies"]]
+};
+const $=s=>document.querySelector(s),video=$('#v'),st=$('#st'),ttl=$('#ttl');
+let chans=[],cat='সব',q='',cur=null,hls=null,timer=null;
+let favs=JSON.parse(localStorage.getItem('favs')||'[]');
+
+function parse(txt){
+  const map={},L=txt.split(/\r?\n/);
+  for(let i=0;i<L.length;i++){
+    const l=L[i];if(!l.startsWith('#EXTINF'))continue;
+    let j=i+1;while(j<L.length&&(!L[j].trim()||L[j].startsWith('#')))j++;
+    const u=(L[j]||'').trim();if(!u)continue;
+    const a=k=>(l.match(new RegExp(k+'="([^"]*)"'))||[])[1]||'';
+    const n=a('tvg-name');
+    (map[n]=map[n]||[]).push({u,logo:a('tvg-logo'),b:/Backup/.test(a('group-title'))?1:0});
+  }
+  return map;
+}
+function build(map){
+  chans=[];
+  for(const c in CATS)for(const it of CATS[c]){
+    const [d,t]=Array.isArray(it)?it:[it,it];
+    const e=(map[t]||[]).sort((x,y)=>x.b-y.b);
+    if(e.length)chans.push({n:d,c,logo:(e.find(x=>x.logo)||{}).logo||'',urls:[...new Set(e.map(x=>x.u))]});
+  }
+  render();
+}
+function render(){
+  const L=chans.filter(c=>(cat==='সব'||(cat==='❤'?favs.includes(c.n):c.c===cat))&&c.n.toLowerCase().includes(q));
+  $('#grid').innerHTML=L.map(c=>`<div class="ch ${cur&&cur.n===c.n?'on':''}" data-n="${c.n}"><img loading="lazy" src="${c.logo}" onerror="this.style.visibility='hidden'"><span>${c.n}</span></div>`).join('')||'<p class="mu">কিছু পাওয়া যায়নি</p>';
+}
+function play(c,i=0){
+  cur=c;clearTimeout(timer);
+  if(hls){hls.destroy();hls=null}
+  ttl.textContent=c.n;$('#fav').textContent=favs.includes(c.n)?'❤':'♡';
+  if(i===0)localStorage.setItem('last',c.n);
+  if(i>=c.urls.length){st.textContent='এখন চলছে না';render();return}
+  st.textContent=`লোড… (${i+1}/${c.urls.length})`;
+  const next=()=>play(c,i+1),url=c.urls[i];
+  if(window.Hls&&Hls.isSupported()){
+    hls=new Hls({maxBufferLength:20,manifestLoadingTimeOut:8000,manifestLoadingMaxRetry:1,levelLoadingMaxRetry:1});
+    hls.loadSource(url);hls.attachMedia(video);
+    hls.on(Hls.Events.MANIFEST_PARSED,()=>video.play().catch(()=>{}));
+    hls.on(Hls.Events.ERROR,(_,d)=>{if(d.fatal)next()});
+  }else{video.src=url;video.play().catch(()=>{})}
+  timer=setTimeout(next,15000);
+  render();
+}
+video.addEventListener('playing',()=>{clearTimeout(timer);st.textContent='● লাইভ'});
+document.addEventListener('fullscreenchange',()=>{
+  try{document.fullscreenElement?screen.orientation.lock('landscape').catch(()=>{}):screen.orientation.unlock()}catch(e){}
+});
+$('#grid').onclick=e=>{const d=e.target.closest('.ch');if(d)play(chans.find(c=>c.n===d.dataset.n))};
+$('#q').oninput=e=>{q=e.target.value.toLowerCase().trim();render()};
+$('#fav').onclick=()=>{
+  if(!cur)return;
+  favs=favs.includes(cur.n)?favs.filter(x=>x!==cur.n):[...favs,cur.n];
+  localStorage.setItem('favs',JSON.stringify(favs));
+  $('#fav').textContent=favs.includes(cur.n)?'❤':'♡';render();
+};
+$('#chips').innerHTML=['সব','❤',...Object.keys(CATS)].map(c=>`<b data-c="${c}" class="${c===cat?'on':''}">${c==='❤'?'❤ ফেভারিট':c}</b>`).join('');
+$('#chips').onclick=e=>{
+  const b=e.target.closest('b');if(!b)return;
+  cat=b.dataset.c;document.querySelectorAll('#chips b').forEach(x=>x.classList.toggle('on',x===b));render();
+};
+(async()=>{
+  let t='';
+  try{if(REMOTE)t=await(await fetch(REMOTE)).text()}catch(e){}
+  try{if(!t.includes('#EXTINF'))t=await(await fetch('playlist.m3u')).text()}catch(e){}
+  if(!t.includes('#EXTINF')){$('#grid').innerHTML='<p class="mu">প্লেলিস্ট পাওয়া যায়নি। www/playlist.m3u ফাইলটা আছে কিনা দেখো।</p>';return}
+  build(parse(t));
+  const l=chans.find(c=>c.n===localStorage.getItem('last'));if(l)play(l);
+})();
+</script></body></html>

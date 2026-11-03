@@ -1,0 +1,8 @@
+{
+  "appId": "com.mama.banglalivetv",
+  "appName": "Bangla Live TV",
+  "webDir": "www",
+  "server": { "androidScheme": "https", "cleartext": true },
+  "android": { "allowMixedContent": true },
+  "plugins": { "CapacitorHttp": { "enabled": false } }
+}
